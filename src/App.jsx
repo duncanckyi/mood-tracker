@@ -31,7 +31,7 @@ const fmt = (d) => { const x = new Date(d + "T00:00:00"); return `${x.getMonth()
 const TABS = [
   { id: "log",     label: "記錄",  icon: "✏️" },
   { id: "history", label: "趨勢",  icon: "📈" },
-  { id: "ai",      label: "AI分析", icon: "✨" },
+  { id: "ai",      label: "分析", icon: "✨" },
 ];
 
 export default function MoodTracker() {
@@ -64,24 +64,140 @@ export default function MoodTracker() {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleAI = async () => {
+  const analyzeLocal = () => {
+    const list = entries.slice(-14);
+    const n = list.length;
+    const avgOf = (arr) => arr.reduce((t,e)=>t+e.score,0)/arr.length;
+    const tagName = (id) => (EMOTION_TAGS.find(t=>t.id===id)?.label.split(" ")[0]) || id;
+    const avg = avgOf(list);
+    const out = [];
+
+    // 1. 趨勢
+    let trend;
+    if (n < 4) {
+      trend = `目前只有 ${n} 天記錄，平均 ${avg.toFixed(1)} 分。再多記錄幾天，我就能看出你的情緒走向了。`;
+    } else {
+      const h = Math.floor(n/2);
+      const diff = avgOf(list.slice(h)) - avgOf(list.slice(0,h));
+      const dir = diff >= 1 ? "明顯回升 📈" : diff <= -1 ? "有些下滑 📉" : "大致穩定 ➡️";
+      trend = `最近 ${n} 天平均 ${avg.toFixed(1)} 分，近期相較前期${dir}。`;
+      const hi = list.reduce((m,e)=>e.score>m.score?e:m), lo = list.reduce((m,e)=>e.score<m.score?e:m);
+      if (hi.score !== lo.score) trend += `最高是 ${fmt(hi.date)}（${hi.score} 分），最低是 ${fmt(lo.date)}（${lo.score} 分）。`;
+    }
+    out.push("**整體情緒趨勢**\n" + trend);
+
+    // 2. 模式
+    const stat = {};
+    list.forEach(e => e.tags.forEach(t => { (stat[t] = stat[t] || []).push(e.score); }));
+    const rows = Object.entries(stat).map(([id,v]) => ({ id, c:v.length, avg: v.reduce((a,b)=>a+b,0)/v.length }));
+    let pattern = "";
+    const usable = rows.filter(r=>r.c>=2);
+    if (usable.length >= 2) {
+      const best = usable.reduce((m,r)=>r.avg>m.avg?r:m), worst = usable.reduce((m,r)=>r.avg<m.avg?r:m);
+      pattern += `標記「${tagName(best.id)}」的日子平均 ${best.avg.toFixed(1)} 分，最有精神；標記「${tagName(worst.id)}」時平均 ${worst.avg.toFixed(1)} 分，最需要照顧自己。`;
+    } else if (rows.length) {
+      const top = rows.reduce((m,r)=>r.c>m.c?r:m);
+      pattern += `你最常出現的情緒是「${tagName(top.id)}」（${top.c} 次）。`;
+    } else {
+      pattern += "你還沒有使用情緒標籤，加上標籤後我能幫你找出哪些情緒會拉高或拉低心情。";
+    }
+    if (n >= 7) {
+      const wd = ["日","一","二","三","四","五","六"];
+      const g = {};
+      list.forEach(e => { const d = new Date(e.date+"T00:00:00").getDay(); (g[d] = g[d] || []).push(e.score); });
+      const w = Object.entries(g).map(([d,v])=>({ d, avg: v.reduce((a,b)=>a+b,0)/v.length }));
+      if (w.length >= 3) {
+        const bw = w.reduce((m,r)=>r.avg>m.avg?r:m), ww = w.reduce((m,r)=>r.avg<m.avg?r:m);
+        if (bw.avg - ww.avg >= 1) pattern += `星期${wd[bw.d]}通常心情最好，星期${wd[ww.d]}最低。`;
+      }
+    }
+    out.push("**情緒模式觀察**\n" + pattern);
+
+    // 3. 建議
+    let tip;
+    const low = rows.filter(r=>r.c>=2).sort((a,b)=>a.avg-b.avg)[0];
+    if (avg <= 4) tip = "最近心情偏低，先別對自己太嚴格。找信任的人聊聊，或安排一件讓你放鬆的小事；如果低落持續超過兩週，建議諮詢專業人士。";
+    else if (low && low.avg <= 5 && ["tired","stressed","anxious"].includes(low.id)) tip = `「${tagName(low.id)}」是讓你分數偏低的主因，試著在這類日子留 15 分鐘給自己，例如散步、深呼吸或早點休息。`;
+    else if (avg >= 7) tip = "整體狀態不錯！記下最近讓你開心的事，低潮時回頭看會很有力量。";
+    else tip = "狀態算穩定。試著每天固定時間記錄，並在備註寫下一件讓你心情變好或變差的小事，之後更容易找到規律。";
+    out.push("**一個小建議**\n" + tip);
+    return out.join("\n");
+  };
+
+  const handleAI = () => {
     if (!entries.length) return;
     setAiLoading(true); setAiText(""); setAiErr("");
-    const tagMap = Object.fromEntries(EMOTION_TAGS.map(t=>[t.id, t.label.split(" ")[0]]));
-    const data = entries.slice(-14).map(e =>
-      `【${fmt(e.date)}】${e.score}/10　${e.tags.map(t=>tagMap[t]||t).join("、")||"未標記"}　${e.note||""}`
+    setTimeout(() => { setAiText(analyzeLocal()); setAiLoading(false); }, 400);
+  };
+
+  const [copyMsg, setCopyMsg] = useState("");
+  const copyForClaude = async () => {
+    if (!entries.length) return;
+    const lines = entries.slice(-14).map(e =>
+      `${fmt(e.date)}｜${e.score}/10｜${e.tags.map(t=>(EMOTION_TAGS.find(x=>x.id===t)?.label.split(" ")[0])||t).join("、")||"未標記"}｜${e.note||""}`
     ).join("\n");
-    const prompt = `你是一位溫暖的情緒健康顧問。以下是使用者近期情緒記錄：\n\n${data}\n\n請用繁體中文，語氣像朋友一樣親切，分析：\n1. **整體情緒趨勢**（2句）\n2. **情緒模式觀察**（2句）\n3. **一個具體小建議**（2句）\n總字數控制在200字內，不要使用專業術語。`;
+    const prompt = `你是一位溫暖的情緒健康顧問。以下是我最近的情緒記錄（日期｜分數｜情緒標籤｜備註）：\n\n${lines}\n\n請用繁體中文、像朋友一樣的語氣，幫我分析整體趨勢、情緒模式，並給我一個具體可行的小建議，200字內。`;
+    try { await navigator.clipboard.writeText(prompt); setCopyMsg("✓ 已複製！貼到 Claude 就能深入分析"); }
+    catch { setCopyMsg("複製失敗，請改用長按選取"); }
+    setTimeout(()=>setCopyMsg(""), 4000);
+  };
+
+  const [backupMsg, setBackupMsg] = useState("");
+  const flash = (m) => { setBackupMsg(m); setTimeout(()=>setBackupMsg(""), 3500); };
+
+  const saveFile = async (filename, mime, content) => {
+    const file = new File([content], filename, { type: mime });
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: prompt }] }),
-      });
-      const d = await res.json();
-      setAiText(d.content?.map(c=>c.text||"").join("")||"");
-    } catch { setAiErr("連線出問題，請稍後再試。"); }
-    finally { setAiLoading(false); }
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename });
+        return true;
+      }
+    } catch (e) { if (e.name === "AbortError") return false; }
+    const url = URL.createObjectURL(file);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    return true;
+  };
+
+  const exportCSV = async () => {
+    if (!entries.length) return flash("還沒有資料可以匯出");
+    const tagMap = Object.fromEntries(EMOTION_TAGS.map(t=>[t.id, t.label.split(" ")[0]]));
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = [["日期","分數","情緒標籤","備註"].map(esc).join(",")]
+      .concat(entries.map(e => [e.date, e.score, e.tags.map(t=>tagMap[t]||t).join("、"), e.note||""].map(esc).join(",")));
+    const ok = await saveFile(`mood-${today()}.csv`, "text/csv;charset=utf-8", "\uFEFF" + rows.join("\r\n"));
+    if (ok) flash("✓ CSV 已匯出");
+  };
+
+  const exportJSON = async () => {
+    if (!entries.length) return flash("還沒有資料可以備份");
+    const ok = await saveFile(`mood-backup-${today()}.json`, "application/json", JSON.stringify(entries, null, 2));
+    if (ok) flash("✓ 備份檔已匯出");
+  };
+
+  const importJSON = (ev) => {
+    const f = ev.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const data = JSON.parse(r.result);
+        if (!Array.isArray(data)) throw new Error();
+        const valid = data.filter(x => x && typeof x.date === "string" && Number.isFinite(x.score) && x.score>=1 && x.score<=10)
+          .map(x => ({ date: x.date, score: x.score, tags: Array.isArray(x.tags)?x.tags:[], note: x.note||"" }));
+        if (!valid.length) throw new Error();
+        setEntries(prev => {
+          const map = new Map(prev.map(e=>[e.date,e]));
+          valid.forEach(e=>map.set(e.date,e));
+          return [...map.values()].sort((a,b)=>a.date.localeCompare(b.date));
+        });
+        flash(`✓ 已匯入 ${valid.length} 筆記錄`);
+      } catch { flash("檔案格式不正確"); }
+    };
+    r.readAsText(f);
+    ev.target.value = "";
   };
 
   const chartData = entries.slice(-14).map(e => ({ date: fmt(e.date), 分數: e.score }));
@@ -278,14 +394,31 @@ export default function MoodTracker() {
           </div>
         )}
 
+        {view==="history" && (
+          <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid #FFE8DC", boxShadow:"0 4px 16px rgba(255,107,107,0.05)", marginTop:16 }}>
+            <div style={{ fontSize:12, color:"#C4A99A", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:6 }}>資料備份</div>
+            <div style={{ fontSize:12, color:"#C4A99A", marginBottom:14, lineHeight:1.6 }}>資料只存在這支手機的瀏覽器裡，建議定期匯出備份。</div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {[{l:"匯出 CSV", f:exportCSV},{l:"備份 JSON", f:exportJSON}].map(b => (
+                <button key={b.l} onClick={b.f} style={{ flex:1, minWidth:100, padding:"12px", borderRadius:12, border:"1.5px solid #FFD4C8", background:"#FFF8F4", color:"#FF6B6B", fontWeight:700, fontSize:13, cursor:"pointer" }}>{b.l}</button>
+              ))}
+              <label style={{ flex:1, minWidth:100, padding:"12px", borderRadius:12, border:"1.5px solid #FFD4C8", background:"#FFF8F4", color:"#FF6B6B", fontWeight:700, fontSize:13, cursor:"pointer", textAlign:"center" }}>
+                匯入備份
+                <input type="file" accept=".json,application/json" onChange={importJSON} style={{ display:"none" }} />
+              </label>
+            </div>
+            {backupMsg && <div style={{ marginTop:12, fontSize:13, color:"#FF6B6B", fontWeight:600 }}>{backupMsg}</div>}
+          </div>
+        )}
+
         {/* AI */}
         {view==="ai" && (
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
             <div style={{ background:"linear-gradient(135deg,#FFF0F0,#FFF8F0)", borderRadius:24, padding:"24px", border:"1px solid #FFD4C8" }}>
               <div style={{ fontSize:28, marginBottom:8 }}>✨</div>
-              <div style={{ fontSize:16, fontWeight:800, color:"#FF6B6B", marginBottom:6 }}>AI 情緒分析</div>
+              <div style={{ fontSize:16, fontWeight:800, color:"#FF6B6B", marginBottom:6 }}>情緒分析</div>
               <div style={{ fontSize:13, color:"#8A7070", lineHeight:1.7 }}>
-                根據你的情緒記錄，AI 會幫你找出情緒趨勢和規律，給你一個貼心的個人化建議。
+                根據你的情緒記錄，找出情緒趨勢和規律，給你一個貼心的小建議。分析在你的手機上完成，資料不會傳出去。
               </div>
               {entries.length<1 && (
                 <div style={{ marginTop:12, fontSize:12, color:"#FF6B6B", background:"#FFF0F0", borderRadius:10, padding:"8px 12px" }}>
@@ -301,8 +434,16 @@ export default function MoodTracker() {
               cursor:!entries.length?"not-allowed":"pointer", transition:"all 0.3s",
               boxShadow:entries.length&&!aiLoading?"0 6px 20px rgba(255,107,107,0.35)":"none",
             }}>
-              {aiLoading ? "✨ AI 分析中..." : "開始 AI 分析"}
+              {aiLoading ? "✨ 分析中..." : "開始分析"}
             </button>
+
+            <button onClick={copyForClaude} disabled={!entries.length} style={{
+              width:"100%", padding:"13px", borderRadius:16, border:"1.5px solid #FFD4C8", background:"white",
+              color:entries.length?"#FF6B6B":"#C4A99A", fontSize:14, fontWeight:700, cursor:entries.length?"pointer":"not-allowed",
+            }}>
+              📋 複製記錄，貼到 Claude 深入分析
+            </button>
+            {copyMsg && <div style={{ fontSize:13, color:"#FF6B6B", fontWeight:600, textAlign:"center" }}>{copyMsg}</div>}
 
             {aiLoading && (
               <div style={{ background:"white", borderRadius:24, padding:"32px 20px", border:"1px solid #FFE8DC", textAlign:"center" }}>
@@ -330,7 +471,7 @@ export default function MoodTracker() {
             {!aiText && !aiLoading && entries.length>0 && (
               <div style={{ background:"white", borderRadius:24, padding:"40px 20px", border:"1px solid #FFE8DC", textAlign:"center" }}>
                 <div style={{ fontSize:36, marginBottom:12 }}>💭</div>
-                <div style={{ fontSize:14, color:"#C4A99A" }}>點擊上方按鈕，讓 AI 幫你解讀情緒模式</div>
+                <div style={{ fontSize:14, color:"#C4A99A" }}>點擊上方按鈕，幫你解讀情緒模式</div>
               </div>
             )}
           </div>
