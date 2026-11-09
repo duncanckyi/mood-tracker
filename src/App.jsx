@@ -25,7 +25,7 @@ const getMoodLabel = (s) => {
   return "超棒的 🌟";
 };
 
-const today = () => new Date().toISOString().split("T")[0];
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const fmt = (d) => { const x = new Date(d + "T00:00:00"); return `${x.getMonth()+1}/${x.getDate()}`; };
 
 const TABS = [
@@ -49,17 +49,34 @@ export default function MoodTracker() {
 
   const todayEntry = entries.find(e => e.date === today());
 
-  useEffect(() => {
-    if (todayEntry) { setScore(todayEntry.score); setTags(todayEntry.tags); setNote(todayEntry.note||""); }
-  }, []);
+  const [selDate, setSelDate] = useState(today());
+  const [openDate, setOpenDate] = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const selEntry = entries.find(e => e.date === selDate);
+
+  const loadForm = (e) => {
+    if (e) { setScore(e.score); setTags(e.tags); setNote(e.note||""); }
+    else { setScore(7); setTags([]); setNote(""); }
+  };
+  useEffect(() => { loadForm(entries.find(x => x.date === selDate)); }, [selDate]);
+
+  const editEntry = (d) => {
+    setSelDate(d); loadForm(entries.find(x => x.date === d));
+    setView("log"); window.scrollTo(0, 0);
+  };
+  const deleteEntry = (d) => {
+    setEntries(p => p.filter(e => e.date !== d));
+    setOpenDate(null); setConfirmDel(null);
+    if (d === selDate) loadForm(null);
+  };
 
   useEffect(() => { localStorage.setItem("mood_v3", JSON.stringify(entries)); }, [entries]);
 
   const toggleTag = (id) => setTags(p => p.includes(id) ? p.filter(t=>t!==id) : [...p,id]);
 
   const handleSave = () => {
-    const entry = { date: today(), score, tags, note };
-    setEntries(p => [...p.filter(e=>e.date!==today()), entry].sort((a,b)=>a.date.localeCompare(b.date)));
+    const entry = { date: selDate, score, tags, note };
+    setEntries(p => [...p.filter(e=>e.date!==selDate), entry].sort((a,b)=>a.date.localeCompare(b.date)));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -251,9 +268,18 @@ export default function MoodTracker() {
 
             {/* Score card */}
             <div style={{ background:"white", borderRadius:24, padding:"24px", border:"1px solid #FFE8DC", boxShadow:"0 4px 20px rgba(255,107,107,0.06)" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:18, flexWrap:"wrap" }}>
+                <input type="date" value={selDate} max={today()} min="2020-01-01"
+                  onChange={e => { if (e.target.value) setSelDate(e.target.value); }}
+                  style={{ border:"1.5px solid #FFD4C8", borderRadius:10, padding:"8px 10px", fontSize:14, color:"#2D2D2D", background:"#FFFCFB", fontFamily:"inherit", outline:"none" }} />
+                {selDate !== today() && (
+                  <button onClick={()=>setSelDate(today())} style={{ padding:"8px 12px", borderRadius:10, border:"none", background:"#FFF0F0", color:"#FF6B6B", fontWeight:700, fontSize:13, cursor:"pointer" }}>回到今天</button>
+                )}
+                {selEntry && <span style={{ fontSize:12, color:"#C4A99A" }}>這天已有記錄，儲存會更新</span>}
+              </div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
                 <div>
-                  <div style={{ fontSize:12, color:"#C4A99A", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px" }}>今日心情分數</div>
+                  <div style={{ fontSize:12, color:"#C4A99A", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px" }}>{selDate===today() ? "今日" : fmt(selDate)} 心情分數</div>
                   <div style={{ fontSize:13, color:col, fontWeight:600, marginTop:4 }}>{getMoodLabel(score)}</div>
                 </div>
                 <div style={{ fontSize:56, fontWeight:900, lineHeight:1, color:col, textShadow:`0 4px 20px ${col}40` }}>{score}</div>
@@ -311,7 +337,7 @@ export default function MoodTracker() {
               color:"white", fontSize:16, fontWeight:800, cursor:"pointer", transition:"all 0.3s",
               boxShadow:saved?"0 6px 20px rgba(107,203,119,0.35)":"0 6px 20px rgba(255,107,107,0.35)",
             }}>
-              {saved ? "✓ 已儲存！" : todayEntry ? "更新今日記錄" : "儲存今日心情"}
+              {saved ? "✓ 已儲存！" : selEntry ? (selDate===today() ? "更新今日記錄" : `更新 ${fmt(selDate)} 的記錄`) : (selDate===today() ? "儲存今日心情" : `儲存 ${fmt(selDate)} 的心情`)}
             </button>
           </div>
         )}
@@ -369,8 +395,10 @@ export default function MoodTracker() {
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                   {[...entries].reverse().map(entry => {
                     const ec = SCORE_COLOR(entry.score);
+                    const open = openDate === entry.date;
                     return (
-                      <div key={entry.date} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", borderRadius:14, background:"#FFF8F4" }}>
+                      <div key={entry.date} style={{ borderRadius:14, background:"#FFF8F4", overflow:"hidden" }}>
+                        <div onClick={()=>{ setOpenDate(open?null:entry.date); setConfirmDel(null); }} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", cursor:"pointer" }}>
                         <div style={{ width:42, height:42, borderRadius:12, background:ec+"15", border:`1.5px solid ${ec}40`,
                           display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, fontWeight:900, color:ec, flexShrink:0 }}>
                           {entry.score}
@@ -383,8 +411,23 @@ export default function MoodTracker() {
                               return tag ? <span key={tid} style={{ fontSize:11, padding:"2px 8px", borderRadius:99, background:tag.bg, color:tag.color, fontWeight:600 }}>{tag.label}</span> : null;
                             })}
                           </div>
-                          {entry.note && <div style={{ fontSize:12, color:"#C4A99A", marginTop:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{entry.note}</div>}
+                          {entry.note && <div style={{ fontSize:12, color:"#C4A99A", marginTop:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:open?"pre-wrap":"nowrap", wordBreak:"break-word" }}>{entry.note}</div>}
                         </div>
+                        <div style={{ color:"#DDD0CC", fontSize:12 }}>{open ? "▲" : "▼"}</div>
+                        </div>
+                        {open && (
+                          <div style={{ display:"flex", gap:8, padding:"0 12px 12px" }}>
+                            <button onClick={()=>editEntry(entry.date)} style={{ flex:1, padding:"10px", borderRadius:10, border:"1.5px solid #FFD4C8", background:"white", color:"#FF6B6B", fontWeight:700, fontSize:13, cursor:"pointer" }}>✏️ 編輯</button>
+                            {confirmDel===entry.date ? (
+                              <>
+                                <button onClick={()=>deleteEntry(entry.date)} style={{ flex:1, padding:"10px", borderRadius:10, border:"none", background:"#FF6B6B", color:"white", fontWeight:700, fontSize:13, cursor:"pointer" }}>確定刪除</button>
+                                <button onClick={()=>setConfirmDel(null)} style={{ flex:1, padding:"10px", borderRadius:10, border:"1.5px solid #FFE8DC", background:"white", color:"#C4A99A", fontWeight:700, fontSize:13, cursor:"pointer" }}>取消</button>
+                              </>
+                            ) : (
+                              <button onClick={()=>setConfirmDel(entry.date)} style={{ flex:1, padding:"10px", borderRadius:10, border:"1.5px solid #FFE8DC", background:"white", color:"#C4A99A", fontWeight:700, fontSize:13, cursor:"pointer" }}>🗑 刪除</button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
