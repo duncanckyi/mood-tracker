@@ -38,6 +38,37 @@ const THEMES = [
   { id:"sunny",    name:"暖陽橘", emoji:"☀️", accent:"#F59E0B", accent2:"#FBBF24", bg:"#FFFAF0", border:"#FCEBC8", muted:"#BBA67A", border2:"#F9DFA8", soft:"#FEF3DC", input:"#FFFDF8", grid:"#FCF0D8", loading:"#FAD58A", errb:"#F5DDA5", faint:"#DDD2BB", rgb:"245,158,11" },
 ];
 
+const CHAT_STYLES = [
+  { id:"heal", emoji:"🫶", name:"療癒陪伴", desc:"先聽你說，再慢慢整理心情",
+    role:"你是一位溫柔、真誠、很會傾聽的朋友，同時懂一些心理知識。",
+    goal:"先接住我的感受，讓我覺得被理解，再輕輕地幫我看見這段時間情緒的變化，以及我自己已經做到的事。",
+    avoid:"不要急著給建議，不要說教，也不要用「你應該」。" },
+  { id:"cbt", emoji:"🔍", name:"換個角度", desc:"找出情緒的觸發點，練習調整想法",
+    role:"你是一位溫暖又有條理的情緒教練，熟悉認知行為的思路，但說話像一般人聊天，不用術語。",
+    goal:"從記錄中找出反覆出現的情緒、可能的觸發情境，以及我腦中可能閃過的想法，用提問的方式邀請我換個角度看，而不是直接給我答案。",
+    avoid:"不要貼標籤或下診斷，不要把推測說成事實，不確定的地方請用問的。" },
+  { id:"action", emoji:"🌱", name:"小步行動", desc:"依你的高低起伏，給可以馬上做的小事",
+    role:"你是一位務實但有溫度的生活夥伴。",
+    goal:"根據我心情較好和較低的日子，幫我找出對我有效的事，並提出一到三個小到幾乎不費力的行動，讓我挑一個今天或這週就能試的。",
+    avoid:"不要列一大串清單，不要給我壓力，做不到也沒關係。" },
+];
+
+const TONE_HINTS = [
+  "這次的口吻像在咖啡店跟熟朋友聊天，輕鬆自然。",
+  "這次的口吻沉穩安靜，像夜裡陪我坐著的人。",
+  "這次可以帶一點點幽默，但不要讓我覺得被敷衍。",
+  "這次的口吻溫暖直接，像一個很懂我的老朋友。",
+  "這次說話慢一點、簡單一點，像在傳訊息給我。",
+];
+const OPEN_HINTS = [
+  "可以從記錄裡讓你最有感觸的一個小細節開口。",
+  "可以先簡單回應我最近過得怎麼樣，再慢慢展開。",
+  "可以先從我做得不錯、值得被看見的地方說起。",
+  "不必有固定開場，自然地開始就好。",
+  "可以先輕輕問我一個問題，再分享你的觀察。",
+];
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
 const TABS = [
   { id: "log",     label: "記錄",  icon: "✏️" },
   { id: "calendar", label: "月曆", icon: "🗓️" },
@@ -185,15 +216,49 @@ export default function MoodTracker() {
   };
 
   const [copyMsg, setCopyMsg] = useState("");
-  const copyForClaude = async () => {
+  const [chatTopic, setChatTopic] = useState("");
+
+  const buildPrompt = (styleId) => {
+    const st = CHAT_STYLES.find(x => x.id === styleId) || CHAT_STYLES[0];
+    const list = entries.slice(-14);
+    const tagLabel = (t) => (EMOTION_TAGS.find(x => x.id === t)?.label.split(" ")[0]) || t;
+    const lines = list.map(e => `${e.date}｜${e.score}/10｜${e.tags.map(tagLabel).join("、") || "未標記"}｜${e.note || "（沒寫備註）"}`).join("\n");
+    const avgS = (list.reduce((t,e)=>t+e.score,0) / list.length).toFixed(1);
+    const hi = Math.max(...list.map(e=>e.score)), lo = Math.min(...list.map(e=>e.score));
+    const topic = chatTopic.trim();
+    return [
+      st.role,
+      `以下是我最近 ${list.length} 天的情緒記錄（格式：日期｜分數 1-10｜情緒標籤｜備註）。平均 ${avgS} 分，最高 ${hi}、最低 ${lo}。`,
+      lines,
+      topic ? `我現在特別想聊的是：${topic}` : "",
+      `你的目標：${st.goal}`,
+      `回應方式：
+- 用繁體中文，像真人說話，不要像報告或問卷。
+- 不要套固定格式：不要編號、不要固定的小標題，也不要每次都用同一種開頭和結尾。
+- 長短依我的記錄多寡和內容自然調整；記錄少就簡短一點，記錄豐富再多聊一些。
+- 一定要引用我記錄裡的具體細節（日期、備註、標籤），讓我感覺你真的有看。
+- ${st.avoid}
+- ${pick(TONE_HINTS)}${pick(OPEN_HINTS)}
+- 結尾留一個輕輕的問題或邀請，讓我可以接著聊，但不要每次都用同一種問法。
+- 你只是陪伴和整理思緒的夥伴，不是醫療人員。只有在我的記錄顯示持續低落、或我提到想傷害自己時，才溫和地提醒我可以找信任的人或專業人士聊聊（台灣可撥安心專線 1925），平常不必特別強調。`,
+    ].filter(Boolean).join("\n\n");
+  };
+
+  const copyForClaude = async (styleId) => {
     if (!entries.length) return;
-    const lines = entries.slice(-14).map(e =>
-      `${fmt(e.date)}｜${e.score}/10｜${e.tags.map(t=>(EMOTION_TAGS.find(x=>x.id===t)?.label.split(" ")[0])||t).join("、")||"未標記"}｜${e.note||""}`
-    ).join("\n");
-    const prompt = `你是一位溫暖的情緒健康顧問。以下是我最近的情緒記錄（日期｜分數｜情緒標籤｜備註）：\n\n${lines}\n\n請用繁體中文、像朋友一樣的語氣，幫我分析整體趨勢、情緒模式，並給我一個具體可行的小建議，200字內。`;
-    try { await navigator.clipboard.writeText(prompt); setCopyMsg("✓ 已複製！貼到 Claude 就能深入分析"); }
-    catch { setCopyMsg("複製失敗，請改用長按選取"); }
-    setTimeout(()=>setCopyMsg(""), 4000);
+    const st = CHAT_STYLES.find(x => x.id === styleId);
+    const text = buildPrompt(styleId);
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch {}
+    if (!ok) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select(); ok = document.execCommand("copy"); ta.remove();
+      } catch {}
+    }
+    setCopyMsg(ok ? `✓ 已複製「${st.name}」，到 Claude 貼上就能開始聊` : "複製失敗，請稍後再試");
+    setTimeout(() => setCopyMsg(""), 5000);
   };
 
   const [backupMsg, setBackupMsg] = useState("");
@@ -626,13 +691,32 @@ export default function MoodTracker() {
               {aiLoading ? "✨ 分析中..." : "開始分析"}
             </button>
 
-            <button onClick={copyForClaude} disabled={!entries.length} style={{
-              width:"100%", padding:"13px", borderRadius:16, border:"1.5px solid var(--border2)", background:"white",
-              color:entries.length?"var(--accent)":"var(--muted)", fontSize:14, fontWeight:700, cursor:entries.length?"pointer":"not-allowed",
-            }}>
-              📋 複製記錄，貼到 Claude 深入分析
-            </button>
-            {copyMsg && <div style={{ fontSize:13, color:"var(--accent)", fontWeight:600, textAlign:"center" }}>{copyMsg}</div>}
+            <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid var(--border)", boxShadow:"0 4px 16px rgba(var(--rgb),0.05)" }}>
+              <div style={{ fontSize:14, fontWeight:800, color:"var(--accent)", marginBottom:4 }}>💬 請 Claude 陪你聊聊</div>
+              <div style={{ fontSize:12, color:"var(--muted)", lineHeight:1.7, marginBottom:14 }}>選一種聊法，會複製成一段提示詞，貼到 Claude 就能開始，之後也可以一直聊下去。每次複製的語氣都會有些不同。</div>
+              <textarea value={chatTopic} onChange={e=>setChatTopic(e.target.value)} rows={2}
+                placeholder="今天特別想聊什麼？（選填，例如：最近工作壓力很大）"
+                style={{ width:"100%", border:"1.5px solid var(--border)", borderRadius:12, padding:"10px 12px", color:"#2D2D2D", fontSize:14, resize:"none", outline:"none", fontFamily:"inherit", lineHeight:1.6, background:"var(--input)", boxSizing:"border-box" }} />
+              <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:12 }}>
+                {CHAT_STYLES.map(st => (
+                  <button key={st.id} onClick={()=>copyForClaude(st.id)} disabled={!entries.length} style={{
+                    display:"flex", alignItems:"center", gap:12, textAlign:"left", padding:"12px 14px", borderRadius:14,
+                    border:"1.5px solid var(--border2)", background:"var(--bg)", fontFamily:"inherit",
+                    cursor:entries.length?"pointer":"not-allowed", opacity:entries.length?1:0.5,
+                  }}>
+                    <span style={{ fontSize:24 }}>{st.emoji}</span>
+                    <span style={{ flex:1 }}>
+                      <div style={{ fontSize:14, fontWeight:800, color:"var(--accent)" }}>{st.name}</div>
+                      <div style={{ fontSize:12, color:"var(--muted)", marginTop:2 }}>{st.desc}</div>
+                    </span>
+                    <span style={{ fontSize:12, color:"var(--muted)" }}>📋 複製</span>
+                  </button>
+                ))}
+              </div>
+              {copyMsg && <div style={{ fontSize:13, color:"var(--accent)", fontWeight:600, textAlign:"center", marginTop:12 }}>{copyMsg}</div>}
+              <a href="https://claude.ai/new" target="_blank" rel="noopener noreferrer" style={{ display:"block", marginTop:12, textAlign:"center", padding:"12px", borderRadius:12, background:"linear-gradient(135deg,var(--accent),var(--accent2))", color:"white", fontWeight:700, fontSize:14, textDecoration:"none" }}>開啟 Claude ↗</a>
+              <div style={{ fontSize:11, color:"var(--muted)", marginTop:10, lineHeight:1.6 }}>提醒：貼上後，記錄內容會傳到 Claude。備註裡有想保密的內容，請先刪掉再貼。</div>
+            </div>
 
             {aiLoading && (
               <div style={{ background:"white", borderRadius:24, padding:"32px 20px", border:"1px solid var(--border)", textAlign:"center" }}>
