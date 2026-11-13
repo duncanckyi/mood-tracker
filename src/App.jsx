@@ -28,8 +28,19 @@ const getMoodLabel = (s) => {
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const fmt = (d) => { const x = new Date(d + "T00:00:00"); return `${x.getMonth()+1}/${x.getDate()}`; };
 
+const pad = (n) => String(n).padStart(2, "0");
+
+const THEMES = [
+  { id:"coral",    name:"珊瑚粉", emoji:"🌸", accent:"#FF6B6B", accent2:"#FF8E72", bg:"#FFF8F4", border:"#FFE8DC", muted:"#C4A99A", border2:"#FFD4C8", soft:"#FFF0F0", input:"#FFFCFB", grid:"#FFF0EB", loading:"#FFB3A7", errb:"#FFCCC4", faint:"#DDD0CC", rgb:"255,107,107" },
+  { id:"ocean",    name:"海洋藍", emoji:"🌊", accent:"#4A90D9", accent2:"#6BB6E8", bg:"#F3F8FD", border:"#DCEAF7", muted:"#8FA5BA", border2:"#C8DDF2", soft:"#EAF3FC", input:"#F9FCFF", grid:"#E8F1FA", loading:"#A9C9EC", errb:"#C0D8F0", faint:"#CBD8E4", rgb:"74,144,217" },
+  { id:"mint",     name:"薄荷綠", emoji:"🌿", accent:"#2FB58A", accent2:"#5CCFA8", bg:"#F2FBF7", border:"#D8F0E5", muted:"#86A99A", border2:"#BFE6D5", soft:"#E7F7EF", input:"#F8FEFB", grid:"#E5F5EC", loading:"#9ADBC3", errb:"#B8E3D2", faint:"#C5D9D0", rgb:"47,181,138" },
+  { id:"lavender", name:"薰衣草", emoji:"💜", accent:"#8B7CF6", accent2:"#A99BFA", bg:"#F7F5FE", border:"#E6E1FA", muted:"#A39BBF", border2:"#D6CFF7", soft:"#F0EDFD", input:"#FCFBFF", grid:"#EEEAFB", loading:"#C3BBF8", errb:"#D3CCF5", faint:"#D5D0E6", rgb:"139,124,246" },
+  { id:"sunny",    name:"暖陽橘", emoji:"☀️", accent:"#F59E0B", accent2:"#FBBF24", bg:"#FFFAF0", border:"#FCEBC8", muted:"#BBA67A", border2:"#F9DFA8", soft:"#FEF3DC", input:"#FFFDF8", grid:"#FCF0D8", loading:"#FAD58A", errb:"#F5DDA5", faint:"#DDD2BB", rgb:"245,158,11" },
+];
+
 const TABS = [
   { id: "log",     label: "記錄",  icon: "✏️" },
+  { id: "calendar", label: "月曆", icon: "🗓️" },
   { id: "history", label: "趨勢",  icon: "📈" },
   { id: "ai",      label: "分析", icon: "✨" },
 ];
@@ -48,6 +59,32 @@ export default function MoodTracker() {
   const [aiErr, setAiErr] = useState("");
 
   const todayEntry = entries.find(e => e.date === today());
+
+  const [themeId, setThemeId] = useState(() => { try { return localStorage.getItem("mood_theme") || "coral"; } catch { return "coral"; } });
+  const [showTheme, setShowTheme] = useState(false);
+  const T = THEMES.find(t => t.id === themeId) || THEMES[0];
+  const themeVars = { "--accent":T.accent, "--accent2":T.accent2, "--bg":T.bg, "--border":T.border, "--muted":T.muted, "--border2":T.border2, "--soft":T.soft, "--input":T.input, "--grid":T.grid, "--loading":T.loading, "--errb":T.errb, "--faint":T.faint, "--rgb":T.rgb };
+  useEffect(() => {
+    try { localStorage.setItem("mood_theme", themeId); } catch {}
+    document.body.style.background = T.bg;
+    const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute("content", T.accent);
+  }, [themeId]);
+
+  const [range, setRange] = useState(14);
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { y:d.getFullYear(), m:d.getMonth() }; });
+  const [calSel, setCalSel] = useState(null);
+  const shiftMonth = (delta) => {
+    setCalMonth(({y,m}) => { const d = new Date(y, m+delta, 1); return { y:d.getFullYear(), m:d.getMonth() }; });
+    setCalSel(null);
+  };
+  const monthCells = () => {
+    const startDow = new Date(calMonth.y, calMonth.m, 1).getDay();
+    const dim = new Date(calMonth.y, calMonth.m+1, 0).getDate();
+    const cells = [];
+    for (let i=0;i<startDow;i++) cells.push(null);
+    for (let d=1; d<=dim; d++) cells.push(`${calMonth.y}-${pad(calMonth.m+1)}-${pad(d)}`);
+    return cells;
+  };
 
   const [selDate, setSelDate] = useState(today());
   const [openDate, setOpenDate] = useState(null);
@@ -217,7 +254,12 @@ export default function MoodTracker() {
     ev.target.value = "";
   };
 
-  const chartData = entries.slice(-14).map(e => ({ date: fmt(e.date), 分數: e.score }));
+  const cutoff = (() => {
+    if (!range) return "";
+    const d = new Date(); d.setDate(d.getDate() - (range-1));
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  })();
+  const chartData = entries.filter(e => e.date >= cutoff).map(e => ({ date: fmt(e.date), 分數: e.score }));
   const avg = entries.length ? (entries.reduce((s,e)=>s+e.score,0)/entries.length).toFixed(1) : null;
   const trendVal = entries.length>=2
     ? entries[entries.length-1].score > entries[entries.length-2].score ? "↑ 上升"
@@ -232,7 +274,7 @@ export default function MoodTracker() {
       <p key={i} style={{ margin: "0 0 12px", lineHeight: 1.8 }}>
         {parts.map((p, j) =>
           p.startsWith("**") && p.endsWith("**")
-            ? <strong key={j} style={{ color: "#FF6B6B", fontWeight: 700 }}>{p.slice(2,-2)}</strong>
+            ? <strong key={j} style={{ color: "var(--accent)", fontWeight: 700 }}>{p.slice(2,-2)}</strong>
             : p
         )}
       </p>
@@ -240,23 +282,39 @@ export default function MoodTracker() {
   });
 
   return (
-    <div style={{ minHeight:"100vh", background:"#FFF8F4", fontFamily:"'Inter',-apple-system,sans-serif", color:"#2D2D2D", paddingBottom:100 }}>
+    <div style={{ ...themeVars, minHeight:"100vh", background:"var(--bg)", fontFamily:"'Inter',-apple-system,sans-serif", color:"#2D2D2D", paddingBottom:100 }}>
 
       {/* Header */}
-      <div style={{ background:"white", borderBottom:"1px solid #FFE8DC", padding:"22px 24px 14px", position:"sticky", top:0, zIndex:10, boxShadow:"0 2px 12px rgba(255,107,107,0.06)" }}>
+      <div style={{ background:"white", borderBottom:"1px solid var(--border)", padding:"22px 24px 14px", position:"sticky", top:0, zIndex:10, boxShadow:"0 2px 12px rgba(var(--rgb),0.06)" }}>
         <div style={{ maxWidth:540, margin:"0 auto", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <div>
-            <h1 style={{ fontSize:20, fontWeight:800, margin:0, color:"#FF6B6B", letterSpacing:"-0.3px" }}>心情日記 🌸</h1>
-            <p style={{ margin:"2px 0 0", color:"#C4A99A", fontSize:12 }}>
+            <h1 style={{ fontSize:20, fontWeight:800, margin:0, color:"var(--accent)", letterSpacing:"-0.3px" }}>心情日記 {T.emoji}</h1>
+            <p style={{ margin:"2px 0 0", color:"var(--muted)", fontSize:12 }}>
               {new Date().toLocaleDateString("zh-TW",{year:"numeric",month:"long",day:"numeric",weekday:"long"})}
             </p>
           </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           {todayEntry && (
             <div style={{ background:`${SCORE_COLOR(todayEntry.score)}15`, border:`1.5px solid ${SCORE_COLOR(todayEntry.score)}40`, borderRadius:12, padding:"6px 14px", fontSize:13, fontWeight:700, color:SCORE_COLOR(todayEntry.score) }}>
               今日 {todayEntry.score}/10
             </div>
           )}
+          <button onClick={()=>setShowTheme(v=>!v)} aria-label="介面顏色" style={{ width:38, height:38, borderRadius:12, border:"1.5px solid var(--border2)", background:"var(--soft)", fontSize:18, cursor:"pointer" }}>🎨</button>
+          </div>
         </div>
+        {showTheme && (
+          <div style={{ position:"absolute", right:16, top:"100%", marginTop:8, background:"white", border:"1px solid var(--border)", borderRadius:18, padding:16, boxShadow:"0 8px 30px rgba(0,0,0,0.12)", width:250 }}>
+            <div style={{ fontSize:12, color:"var(--muted)", fontWeight:600, marginBottom:12 }}>介面顏色</div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:10 }}>
+              {THEMES.map(t => (
+                <button key={t.id} onClick={()=>{ setThemeId(t.id); setShowTheme(false); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6, background:"none", border:"none", cursor:"pointer", width:64, padding:0, fontFamily:"inherit" }}>
+                  <span style={{ width:40, height:40, borderRadius:99, background:`linear-gradient(135deg,${t.accent},${t.accent2})`, border: themeId===t.id ? "3px solid #2D2D2D" : "3px solid white", boxShadow:"0 2px 8px rgba(0,0,0,0.15)", display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontSize:16, fontWeight:800 }}>{themeId===t.id ? "✓" : ""}</span>
+                  <span style={{ fontSize:11, color:"#6B5B5B" }}>{t.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -267,19 +325,19 @@ export default function MoodTracker() {
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
 
             {/* Score card */}
-            <div style={{ background:"white", borderRadius:24, padding:"24px", border:"1px solid #FFE8DC", boxShadow:"0 4px 20px rgba(255,107,107,0.06)" }}>
+            <div style={{ background:"white", borderRadius:24, padding:"24px", border:"1px solid var(--border)", boxShadow:"0 4px 20px rgba(var(--rgb),0.06)" }}>
               <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:18, flexWrap:"wrap" }}>
                 <input type="date" value={selDate} max={today()} min="2020-01-01"
                   onChange={e => { if (e.target.value) setSelDate(e.target.value); }}
-                  style={{ border:"1.5px solid #FFD4C8", borderRadius:10, padding:"8px 10px", fontSize:14, color:"#2D2D2D", background:"#FFFCFB", fontFamily:"inherit", outline:"none" }} />
+                  style={{ border:"1.5px solid var(--border2)", borderRadius:10, padding:"8px 10px", fontSize:14, color:"#2D2D2D", background:"var(--input)", fontFamily:"inherit", outline:"none" }} />
                 {selDate !== today() && (
-                  <button onClick={()=>setSelDate(today())} style={{ padding:"8px 12px", borderRadius:10, border:"none", background:"#FFF0F0", color:"#FF6B6B", fontWeight:700, fontSize:13, cursor:"pointer" }}>回到今天</button>
+                  <button onClick={()=>setSelDate(today())} style={{ padding:"8px 12px", borderRadius:10, border:"none", background:"var(--soft)", color:"var(--accent)", fontWeight:700, fontSize:13, cursor:"pointer" }}>回到今天</button>
                 )}
-                {selEntry && <span style={{ fontSize:12, color:"#C4A99A" }}>這天已有記錄，儲存會更新</span>}
+                {selEntry && <span style={{ fontSize:12, color:"var(--muted)" }}>這天已有記錄，儲存會更新</span>}
               </div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
                 <div>
-                  <div style={{ fontSize:12, color:"#C4A99A", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px" }}>{selDate===today() ? "今日" : fmt(selDate)} 心情分數</div>
+                  <div style={{ fontSize:12, color:"var(--muted)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px" }}>{selDate===today() ? "今日" : fmt(selDate)} 心情分數</div>
                   <div style={{ fontSize:13, color:col, fontWeight:600, marginTop:4 }}>{getMoodLabel(score)}</div>
                 </div>
                 <div style={{ fontSize:56, fontWeight:900, lineHeight:1, color:col, textShadow:`0 4px 20px ${col}40` }}>{score}</div>
@@ -288,13 +346,13 @@ export default function MoodTracker() {
               <input type="range" min={1} max={10} value={score}
                 onChange={e=>setScore(Number(e.target.value))}
                 style={{ width:"100%", appearance:"none", height:8, borderRadius:99, outline:"none", cursor:"pointer",
-                  background:`linear-gradient(90deg, ${col} ${(score-1)/9*100}%, #FFE8DC ${(score-1)/9*100}%)` }}
+                  background:`linear-gradient(90deg, ${col} ${(score-1)/9*100}%, var(--border) ${(score-1)/9*100}%)` }}
               />
               <div style={{ display:"flex", justifyContent:"space-between", marginTop:8 }}>
                 {[1,2,3,4,5,6,7,8,9,10].map(n => (
                   <div key={n} onClick={()=>setScore(n)} style={{ width:28, height:28, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center",
                     fontSize:12, fontWeight:score===n?800:400, cursor:"pointer",
-                    background:score===n?col+"20":"transparent", color:score===n?col:"#C4A99A",
+                    background:score===n?col+"20":"transparent", color:score===n?col:"var(--muted)",
                     transition:"all 0.15s" }}>
                     {n}
                   </div>
@@ -303,15 +361,15 @@ export default function MoodTracker() {
             </div>
 
             {/* Tags */}
-            <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid #FFE8DC", boxShadow:"0 4px 20px rgba(255,107,107,0.06)" }}>
-              <div style={{ fontSize:12, color:"#C4A99A", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:14 }}>情緒標籤</div>
+            <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid var(--border)", boxShadow:"0 4px 20px rgba(var(--rgb),0.06)" }}>
+              <div style={{ fontSize:12, color:"var(--muted)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:14 }}>情緒標籤</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
                 {EMOTION_TAGS.map(tag => {
                   const on = tags.includes(tag.id);
                   return (
                     <button key={tag.id} onClick={()=>toggleTag(tag.id)} style={{
-                      padding:"8px 14px", borderRadius:99, border:`1.5px solid ${on?tag.color:"#FFE8DC"}`,
-                      background:on?tag.bg:"white", color:on?tag.color:"#C4A99A",
+                      padding:"8px 14px", borderRadius:99, border:`1.5px solid ${on?tag.color:"var(--border)"}`,
+                      background:on?tag.bg:"white", color:on?tag.color:"var(--muted)",
                       fontSize:13, fontWeight:on?700:400, cursor:"pointer", transition:"all 0.15s",
                     }}>{tag.label}</button>
                   );
@@ -320,27 +378,110 @@ export default function MoodTracker() {
             </div>
 
             {/* Note */}
-            <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid #FFE8DC", boxShadow:"0 4px 20px rgba(255,107,107,0.06)" }}>
-              <div style={{ fontSize:12, color:"#C4A99A", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:12 }}>今日備注（選填）</div>
+            <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid var(--border)", boxShadow:"0 4px 20px rgba(var(--rgb),0.06)" }}>
+              <div style={{ fontSize:12, color:"var(--muted)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:12 }}>今日備注（選填）</div>
               <textarea value={note} onChange={e=>setNote(e.target.value)}
                 placeholder="今天有什麼想記下來的嗎..." rows={3}
-                style={{ width:"100%", border:"1.5px solid #FFE8DC", borderRadius:12, padding:"12px 14px", color:"#2D2D2D",
+                style={{ width:"100%", border:"1.5px solid var(--border)", borderRadius:12, padding:"12px 14px", color:"#2D2D2D",
                   fontSize:14, resize:"none", outline:"none", fontFamily:"inherit", lineHeight:1.7,
-                  background:"#FFFCFB", boxSizing:"border-box" }}
+                  background:"var(--input)", boxSizing:"border-box" }}
               />
             </div>
 
             {/* Save */}
             <button onClick={handleSave} style={{
               width:"100%", padding:"16px", borderRadius:16, border:"none",
-              background:saved?"linear-gradient(135deg,#6BCB77,#4ECDC4)":"linear-gradient(135deg,#FF6B6B,#FF8E72)",
+              background:saved?"linear-gradient(135deg,#6BCB77,#4ECDC4)":"linear-gradient(135deg,var(--accent),var(--accent2))",
               color:"white", fontSize:16, fontWeight:800, cursor:"pointer", transition:"all 0.3s",
-              boxShadow:saved?"0 6px 20px rgba(107,203,119,0.35)":"0 6px 20px rgba(255,107,107,0.35)",
+              boxShadow:saved?"0 6px 20px rgba(107,203,119,0.35)":"0 6px 20px rgba(var(--rgb),0.35)",
             }}>
               {saved ? "✓ 已儲存！" : selEntry ? (selDate===today() ? "更新今日記錄" : `更新 ${fmt(selDate)} 的記錄`) : (selDate===today() ? "儲存今日心情" : `儲存 ${fmt(selDate)} 的心情`)}
             </button>
           </div>
         )}
+
+        {/* CALENDAR */}
+        {view==="calendar" && (() => {
+          const cells = monthCells();
+          const prefix = `${calMonth.y}-${pad(calMonth.m+1)}`;
+          const monthEntries = entries.filter(e => e.date.startsWith(prefix));
+          const mAvg = monthEntries.length ? (monthEntries.reduce((t,e)=>t+e.score,0)/monthEntries.length).toFixed(1) : "—";
+          const isCurrent = prefix === today().slice(0,7);
+          const selE = calSel ? entries.find(e => e.date === calSel) : null;
+          const navBtn = { width:36, height:36, borderRadius:10, border:"1.5px solid var(--border2)", background:"var(--bg)", color:"var(--accent)", fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:"inherit" };
+          return (
+            <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+              <div style={{ background:"white", borderRadius:24, padding:"20px 16px", border:"1px solid var(--border)", boxShadow:"0 4px 16px rgba(var(--rgb),0.05)" }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+                  <button onClick={()=>shiftMonth(-1)} style={navBtn}>‹</button>
+                  <div style={{ fontSize:17, fontWeight:800, color:"#2D2D2D" }}>{calMonth.y} 年 {calMonth.m+1} 月</div>
+                  <button onClick={()=>shiftMonth(1)} disabled={isCurrent} style={{ ...navBtn, opacity:isCurrent?0.35:1, cursor:isCurrent?"default":"pointer" }}>›</button>
+                </div>
+                <div style={{ textAlign:"center", fontSize:12, color:"var(--muted)", marginBottom:14 }}>本月記錄 {monthEntries.length} 天　平均 {mAvg} 分</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:6, marginBottom:6 }}>
+                  {["日","一","二","三","四","五","六"].map(w => (
+                    <div key={w} style={{ textAlign:"center", fontSize:11, color:"var(--muted)", fontWeight:600 }}>{w}</div>
+                  ))}
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:6 }}>
+                  {cells.map((d,i) => {
+                    if (!d) return <div key={"b"+i} />;
+                    const e = entries.find(x => x.date === d);
+                    const future = d > today();
+                    const isToday = d === today();
+                    const sc = e ? SCORE_COLOR(e.score) : null;
+                    const picked = calSel === d;
+                    return (
+                      <button key={d} disabled={future} onClick={()=>setCalSel(picked ? null : d)} style={{
+                        aspectRatio:"1", borderRadius:12, padding:0, fontFamily:"inherit",
+                        border: picked ? "2px solid var(--accent)" : isToday ? "2px dashed var(--accent)" : `1.5px solid ${e ? sc+"55" : "var(--border)"}`,
+                        background: e ? sc+"25" : "var(--input)", opacity: future ? 0.35 : 1, cursor: future ? "default" : "pointer",
+                        display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2,
+                      }}>
+                        <span style={{ fontSize:10, color:"var(--muted)", lineHeight:1 }}>{Number(d.slice(8))}</span>
+                        <span style={{ fontSize:16, fontWeight:900, color:e?sc:"transparent", lineHeight:1 }}>{e ? e.score : "0"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:16, fontSize:11, color:"var(--muted)" }}>
+                  <span>低</span>
+                  <div style={{ flex:1, height:6, borderRadius:99, background:`linear-gradient(90deg, ${SCORE_COLOR(1)}, ${SCORE_COLOR(5)}, ${SCORE_COLOR(10)})` }} />
+                  <span>高</span>
+                </div>
+              </div>
+
+              {calSel && (
+                <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid var(--border)", boxShadow:"0 4px 16px rgba(var(--rgb),0.05)" }}>
+                  <div style={{ fontSize:12, color:"var(--muted)", fontWeight:600, marginBottom:10 }}>{calSel.slice(0,4)} 年 {Number(calSel.slice(5,7))} 月 {Number(calSel.slice(8))} 日</div>
+                  {selE ? (
+                    <div>
+                      <div style={{ display:"flex", alignItems:"baseline", gap:10, marginBottom:10 }}>
+                        <span style={{ fontSize:40, fontWeight:900, color:SCORE_COLOR(selE.score), lineHeight:1 }}>{selE.score}</span>
+                        <span style={{ fontSize:13, color:SCORE_COLOR(selE.score), fontWeight:600 }}>{getMoodLabel(selE.score)}</span>
+                      </div>
+                      {selE.tags.length>0 && (
+                        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
+                          {selE.tags.map(tid => {
+                            const tag = EMOTION_TAGS.find(t=>t.id===tid);
+                            return tag ? <span key={tid} style={{ fontSize:12, padding:"3px 10px", borderRadius:99, background:tag.bg, color:tag.color, fontWeight:600 }}>{tag.label}</span> : null;
+                          })}
+                        </div>
+                      )}
+                      {selE.note && <div style={{ fontSize:14, color:"#4A3A3A", lineHeight:1.7, whiteSpace:"pre-wrap", wordBreak:"break-word", marginBottom:12 }}>{selE.note}</div>}
+                      <button onClick={()=>editEntry(calSel)} style={{ width:"100%", padding:"11px", borderRadius:12, border:"1.5px solid var(--border2)", background:"var(--bg)", color:"var(--accent)", fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>✏️ 編輯這天</button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize:14, color:"var(--muted)", marginBottom:12 }}>這天還沒有記錄</div>
+                      <button onClick={()=>editEntry(calSel)} style={{ width:"100%", padding:"11px", borderRadius:12, border:"none", background:"linear-gradient(135deg,var(--accent),var(--accent2))", color:"white", fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>＋ 記錄這天</button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* HISTORY */}
         {view==="history" && (
@@ -353,78 +494,83 @@ export default function MoodTracker() {
                   { icon:"📊", val:trendVal, label:"最近趨勢" },
                 ].map(s => (
                   <div key={s.label} style={{ flex:1, background:"white", borderRadius:18, padding:"14px 8px",
-                    textAlign:"center", border:"1px solid #FFE8DC", boxShadow:"0 4px 16px rgba(255,107,107,0.05)" }}>
+                    textAlign:"center", border:"1px solid var(--border)", boxShadow:"0 4px 16px rgba(var(--rgb),0.05)" }}>
                     <div style={{ fontSize:20, marginBottom:4 }}>{s.icon}</div>
-                    <div style={{ fontSize:18, fontWeight:800, color:"#FF6B6B" }}>{s.val}</div>
-                    <div style={{ fontSize:11, color:"#C4A99A", marginTop:2 }}>{s.label}</div>
+                    <div style={{ fontSize:18, fontWeight:800, color:"var(--accent)" }}>{s.val}</div>
+                    <div style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>{s.label}</div>
                   </div>
                 ))}
               </div>
             )}
 
-            {chartData.length>1 ? (
-              <div style={{ background:"white", borderRadius:24, padding:"20px 12px 16px", border:"1px solid #FFE8DC", boxShadow:"0 4px 16px rgba(255,107,107,0.05)" }}>
-                <div style={{ fontSize:12, color:"#C4A99A", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:16, paddingLeft:8 }}>近14天趨勢</div>
+            <div style={{ background:"white", borderRadius:24, padding:"20px 12px 16px", border:"1px solid var(--border)", boxShadow:"0 4px 16px rgba(var(--rgb),0.05)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, padding:"0 8px", gap:8, flexWrap:"wrap" }}>
+                <div style={{ fontSize:12, color:"var(--muted)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px" }}>{range ? `近 ${range} 天趨勢` : "全部趨勢"}</div>
+                <div style={{ display:"flex", gap:4, background:"var(--bg)", borderRadius:10, padding:3 }}>
+                  {[[7,"7天"],[14,"14天"],[30,"30天"],[0,"全部"]].map(([v,l]) => (
+                    <button key={v} onClick={()=>setRange(v)} style={{ padding:"5px 10px", borderRadius:8, border:"none", fontSize:12, fontWeight:700, cursor:"pointer", background:range===v?"var(--accent)":"transparent", color:range===v?"white":"var(--muted)", fontFamily:"inherit" }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+              {chartData.length>1 ? (
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#FF6B6B" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#FF6B6B" stopOpacity={0}/>
+                        <stop offset="5%" stopColor={T.accent} stopOpacity={0.2}/>
+                        <stop offset="95%" stopColor={T.accent} stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#FFF0EB" />
-                    <XAxis dataKey="date" tick={{ fill:"#C4A99A", fontSize:11 }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[1,10]} tick={{ fill:"#C4A99A", fontSize:11 }} axisLine={false} tickLine={false} width={22} />
-                    <Tooltip contentStyle={{ background:"white", border:"1px solid #FFE8DC", borderRadius:12, color:"#2D2D2D", fontSize:13 }} />
-                    <Area type="monotone" dataKey="分數" stroke="#FF6B6B" strokeWidth={2.5} fill="url(#g)" dot={{ fill:"#FF6B6B", r:4, strokeWidth:0 }} activeDot={{ r:6 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={T.grid} />
+                    <XAxis dataKey="date" interval="preserveStartEnd" minTickGap={16} tick={{ fill:T.muted, fontSize:11 }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[1,10]} tick={{ fill:T.muted, fontSize:11 }} axisLine={false} tickLine={false} width={22} />
+                    <Tooltip contentStyle={{ background:"white", border:"1px solid var(--border)", borderRadius:12, color:"#2D2D2D", fontSize:13 }} />
+                    <Area type="monotone" dataKey="分數" stroke={T.accent} strokeWidth={2.5} fill="url(#g)" dot={{ fill:T.accent, r:4, strokeWidth:0 }} activeDot={{ r:6 }} />
                   </AreaChart>
                 </ResponsiveContainer>
-              </div>
-            ) : (
-              <div style={{ background:"white", borderRadius:24, padding:"40px 20px", border:"1px solid #FFE8DC", textAlign:"center", color:"#DDD0CC" }}>
-                記錄至少 2 天後趨勢圖會出現 📈
-              </div>
-            )}
+              ) : (
+                <div style={{ padding:"30px 10px", textAlign:"center", color:"var(--muted)", fontSize:14 }}>這段期間至少要有 2 天記錄，才會顯示趨勢圖 📈</div>
+              )}
+            </div>
 
-            <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid #FFE8DC", boxShadow:"0 4px 16px rgba(255,107,107,0.05)" }}>
-              <div style={{ fontSize:12, color:"#C4A99A", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:14 }}>所有記錄</div>
+            <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid var(--border)", boxShadow:"0 4px 16px rgba(var(--rgb),0.05)" }}>
+              <div style={{ fontSize:12, color:"var(--muted)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:14 }}>所有記錄</div>
               {entries.length===0 ? (
-                <div style={{ color:"#DDD0CC", fontSize:14, textAlign:"center", padding:"20px 0" }}>還沒有記錄，先去記錄今天的心情吧！</div>
+                <div style={{ color:"var(--faint)", fontSize:14, textAlign:"center", padding:"20px 0" }}>還沒有記錄，先去記錄今天的心情吧！</div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                   {[...entries].reverse().map(entry => {
                     const ec = SCORE_COLOR(entry.score);
                     const open = openDate === entry.date;
                     return (
-                      <div key={entry.date} style={{ borderRadius:14, background:"#FFF8F4", overflow:"hidden" }}>
+                      <div key={entry.date} style={{ borderRadius:14, background:"var(--bg)", overflow:"hidden" }}>
                         <div onClick={()=>{ setOpenDate(open?null:entry.date); setConfirmDel(null); }} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", cursor:"pointer" }}>
                         <div style={{ width:42, height:42, borderRadius:12, background:ec+"15", border:`1.5px solid ${ec}40`,
                           display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, fontWeight:900, color:ec, flexShrink:0 }}>
                           {entry.score}
                         </div>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:12, color:"#C4A99A", marginBottom:4 }}>{fmt(entry.date)}</div>
+                          <div style={{ fontSize:12, color:"var(--muted)", marginBottom:4 }}>{fmt(entry.date)}</div>
                           <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
                             {entry.tags.map(tid => {
                               const tag = EMOTION_TAGS.find(t=>t.id===tid);
                               return tag ? <span key={tid} style={{ fontSize:11, padding:"2px 8px", borderRadius:99, background:tag.bg, color:tag.color, fontWeight:600 }}>{tag.label}</span> : null;
                             })}
                           </div>
-                          {entry.note && <div style={{ fontSize:12, color:"#C4A99A", marginTop:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:open?"pre-wrap":"nowrap", wordBreak:"break-word" }}>{entry.note}</div>}
+                          {entry.note && <div style={{ fontSize:12, color:"var(--muted)", marginTop:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:open?"pre-wrap":"nowrap", wordBreak:"break-word" }}>{entry.note}</div>}
                         </div>
-                        <div style={{ color:"#DDD0CC", fontSize:12 }}>{open ? "▲" : "▼"}</div>
+                        <div style={{ color:"var(--faint)", fontSize:12 }}>{open ? "▲" : "▼"}</div>
                         </div>
                         {open && (
                           <div style={{ display:"flex", gap:8, padding:"0 12px 12px" }}>
-                            <button onClick={()=>editEntry(entry.date)} style={{ flex:1, padding:"10px", borderRadius:10, border:"1.5px solid #FFD4C8", background:"white", color:"#FF6B6B", fontWeight:700, fontSize:13, cursor:"pointer" }}>✏️ 編輯</button>
+                            <button onClick={()=>editEntry(entry.date)} style={{ flex:1, padding:"10px", borderRadius:10, border:"1.5px solid var(--border2)", background:"white", color:"var(--accent)", fontWeight:700, fontSize:13, cursor:"pointer" }}>✏️ 編輯</button>
                             {confirmDel===entry.date ? (
                               <>
-                                <button onClick={()=>deleteEntry(entry.date)} style={{ flex:1, padding:"10px", borderRadius:10, border:"none", background:"#FF6B6B", color:"white", fontWeight:700, fontSize:13, cursor:"pointer" }}>確定刪除</button>
-                                <button onClick={()=>setConfirmDel(null)} style={{ flex:1, padding:"10px", borderRadius:10, border:"1.5px solid #FFE8DC", background:"white", color:"#C4A99A", fontWeight:700, fontSize:13, cursor:"pointer" }}>取消</button>
+                                <button onClick={()=>deleteEntry(entry.date)} style={{ flex:1, padding:"10px", borderRadius:10, border:"none", background:"var(--accent)", color:"white", fontWeight:700, fontSize:13, cursor:"pointer" }}>確定刪除</button>
+                                <button onClick={()=>setConfirmDel(null)} style={{ flex:1, padding:"10px", borderRadius:10, border:"1.5px solid var(--border)", background:"white", color:"var(--muted)", fontWeight:700, fontSize:13, cursor:"pointer" }}>取消</button>
                               </>
                             ) : (
-                              <button onClick={()=>setConfirmDel(entry.date)} style={{ flex:1, padding:"10px", borderRadius:10, border:"1.5px solid #FFE8DC", background:"white", color:"#C4A99A", fontWeight:700, fontSize:13, cursor:"pointer" }}>🗑 刪除</button>
+                              <button onClick={()=>setConfirmDel(entry.date)} style={{ flex:1, padding:"10px", borderRadius:10, border:"1.5px solid var(--border)", background:"white", color:"var(--muted)", fontWeight:700, fontSize:13, cursor:"pointer" }}>🗑 刪除</button>
                             )}
                           </div>
                         )}
@@ -438,33 +584,33 @@ export default function MoodTracker() {
         )}
 
         {view==="history" && (
-          <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid #FFE8DC", boxShadow:"0 4px 16px rgba(255,107,107,0.05)", marginTop:16 }}>
-            <div style={{ fontSize:12, color:"#C4A99A", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:6 }}>資料備份</div>
-            <div style={{ fontSize:12, color:"#C4A99A", marginBottom:14, lineHeight:1.6 }}>資料只存在這支手機的瀏覽器裡，建議定期匯出備份。</div>
+          <div style={{ background:"white", borderRadius:24, padding:"20px", border:"1px solid var(--border)", boxShadow:"0 4px 16px rgba(var(--rgb),0.05)", marginTop:16 }}>
+            <div style={{ fontSize:12, color:"var(--muted)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:6 }}>資料備份</div>
+            <div style={{ fontSize:12, color:"var(--muted)", marginBottom:14, lineHeight:1.6 }}>資料只存在這支手機的瀏覽器裡，建議定期匯出備份。</div>
             <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
               {[{l:"匯出 CSV", f:exportCSV},{l:"備份 JSON", f:exportJSON}].map(b => (
-                <button key={b.l} onClick={b.f} style={{ flex:1, minWidth:100, padding:"12px", borderRadius:12, border:"1.5px solid #FFD4C8", background:"#FFF8F4", color:"#FF6B6B", fontWeight:700, fontSize:13, cursor:"pointer" }}>{b.l}</button>
+                <button key={b.l} onClick={b.f} style={{ flex:1, minWidth:100, padding:"12px", borderRadius:12, border:"1.5px solid var(--border2)", background:"var(--bg)", color:"var(--accent)", fontWeight:700, fontSize:13, cursor:"pointer" }}>{b.l}</button>
               ))}
-              <label style={{ flex:1, minWidth:100, padding:"12px", borderRadius:12, border:"1.5px solid #FFD4C8", background:"#FFF8F4", color:"#FF6B6B", fontWeight:700, fontSize:13, cursor:"pointer", textAlign:"center" }}>
+              <label style={{ flex:1, minWidth:100, padding:"12px", borderRadius:12, border:"1.5px solid var(--border2)", background:"var(--bg)", color:"var(--accent)", fontWeight:700, fontSize:13, cursor:"pointer", textAlign:"center" }}>
                 匯入備份
                 <input type="file" accept=".json,application/json" onChange={importJSON} style={{ display:"none" }} />
               </label>
             </div>
-            {backupMsg && <div style={{ marginTop:12, fontSize:13, color:"#FF6B6B", fontWeight:600 }}>{backupMsg}</div>}
+            {backupMsg && <div style={{ marginTop:12, fontSize:13, color:"var(--accent)", fontWeight:600 }}>{backupMsg}</div>}
           </div>
         )}
 
         {/* AI */}
         {view==="ai" && (
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-            <div style={{ background:"linear-gradient(135deg,#FFF0F0,#FFF8F0)", borderRadius:24, padding:"24px", border:"1px solid #FFD4C8" }}>
+            <div style={{ background:"linear-gradient(135deg,var(--soft),#FFF8F0)", borderRadius:24, padding:"24px", border:"1px solid var(--border2)" }}>
               <div style={{ fontSize:28, marginBottom:8 }}>✨</div>
-              <div style={{ fontSize:16, fontWeight:800, color:"#FF6B6B", marginBottom:6 }}>情緒分析</div>
+              <div style={{ fontSize:16, fontWeight:800, color:"var(--accent)", marginBottom:6 }}>情緒分析</div>
               <div style={{ fontSize:13, color:"#8A7070", lineHeight:1.7 }}>
                 根據你的情緒記錄，找出情緒趨勢和規律，給你一個貼心的小建議。分析在你的手機上完成，資料不會傳出去。
               </div>
               {entries.length<1 && (
-                <div style={{ marginTop:12, fontSize:12, color:"#FF6B6B", background:"#FFF0F0", borderRadius:10, padding:"8px 12px" }}>
+                <div style={{ marginTop:12, fontSize:12, color:"var(--accent)", background:"var(--soft)", borderRadius:10, padding:"8px 12px" }}>
                   ⚠️ 請先記錄至少一天的心情
                 </div>
               )}
@@ -472,49 +618,49 @@ export default function MoodTracker() {
 
             <button onClick={handleAI} disabled={aiLoading||!entries.length} style={{
               width:"100%", padding:"15px", borderRadius:16, border:"none",
-              background:!entries.length?"#FFE8DC":aiLoading?"#FFB3A7":"linear-gradient(135deg,#FF6B6B,#FF8E72)",
-              color:!entries.length?"#C4A99A":"white", fontSize:15, fontWeight:800,
+              background:!entries.length?"var(--border)":aiLoading?"var(--loading)":"linear-gradient(135deg,var(--accent),var(--accent2))",
+              color:!entries.length?"var(--muted)":"white", fontSize:15, fontWeight:800,
               cursor:!entries.length?"not-allowed":"pointer", transition:"all 0.3s",
-              boxShadow:entries.length&&!aiLoading?"0 6px 20px rgba(255,107,107,0.35)":"none",
+              boxShadow:entries.length&&!aiLoading?"0 6px 20px rgba(var(--rgb),0.35)":"none",
             }}>
               {aiLoading ? "✨ 分析中..." : "開始分析"}
             </button>
 
             <button onClick={copyForClaude} disabled={!entries.length} style={{
-              width:"100%", padding:"13px", borderRadius:16, border:"1.5px solid #FFD4C8", background:"white",
-              color:entries.length?"#FF6B6B":"#C4A99A", fontSize:14, fontWeight:700, cursor:entries.length?"pointer":"not-allowed",
+              width:"100%", padding:"13px", borderRadius:16, border:"1.5px solid var(--border2)", background:"white",
+              color:entries.length?"var(--accent)":"var(--muted)", fontSize:14, fontWeight:700, cursor:entries.length?"pointer":"not-allowed",
             }}>
               📋 複製記錄，貼到 Claude 深入分析
             </button>
-            {copyMsg && <div style={{ fontSize:13, color:"#FF6B6B", fontWeight:600, textAlign:"center" }}>{copyMsg}</div>}
+            {copyMsg && <div style={{ fontSize:13, color:"var(--accent)", fontWeight:600, textAlign:"center" }}>{copyMsg}</div>}
 
             {aiLoading && (
-              <div style={{ background:"white", borderRadius:24, padding:"32px 20px", border:"1px solid #FFE8DC", textAlign:"center" }}>
+              <div style={{ background:"white", borderRadius:24, padding:"32px 20px", border:"1px solid var(--border)", textAlign:"center" }}>
                 <div style={{ fontSize:32, marginBottom:12 }}>🤔</div>
                 <div style={{ fontSize:14, color:"#8A7070" }}>正在分析你的情緒資料...</div>
-                <div style={{ fontSize:12, color:"#C4A99A", marginTop:6 }}>通常只需要幾秒鐘</div>
+                <div style={{ fontSize:12, color:"var(--muted)", marginTop:6 }}>通常只需要幾秒鐘</div>
               </div>
             )}
 
             {aiErr && (
-              <div style={{ background:"#FFF0F0", borderRadius:16, padding:"16px 20px", border:"1px solid #FFCCC4", color:"#FF6B6B", fontSize:14 }}>{aiErr}</div>
+              <div style={{ background:"var(--soft)", borderRadius:16, padding:"16px 20px", border:"1px solid var(--errb)", color:"var(--accent)", fontSize:14 }}>{aiErr}</div>
             )}
 
             {aiText && !aiLoading && (
-              <div style={{ background:"white", borderRadius:24, padding:"24px", border:"1px solid #FFE8DC", boxShadow:"0 4px 16px rgba(255,107,107,0.05)" }}>
+              <div style={{ background:"white", borderRadius:24, padding:"24px", border:"1px solid var(--border)", boxShadow:"0 4px 16px rgba(var(--rgb),0.05)" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:18 }}>
                   <span style={{ fontSize:20 }}>🧠</span>
-                  <span style={{ fontSize:14, fontWeight:800, color:"#FF6B6B" }}>分析結果</span>
-                  <span style={{ marginLeft:"auto", fontSize:11, color:"#C4A99A" }}>基於最近 {Math.min(entries.length,14)} 天記錄</span>
+                  <span style={{ fontSize:14, fontWeight:800, color:"var(--accent)" }}>分析結果</span>
+                  <span style={{ marginLeft:"auto", fontSize:11, color:"var(--muted)" }}>基於最近 {Math.min(entries.length,14)} 天記錄</span>
                 </div>
                 <div style={{ fontSize:14, color:"#4A3A3A", lineHeight:1.8 }}>{renderAI(aiText)}</div>
               </div>
             )}
 
             {!aiText && !aiLoading && entries.length>0 && (
-              <div style={{ background:"white", borderRadius:24, padding:"40px 20px", border:"1px solid #FFE8DC", textAlign:"center" }}>
+              <div style={{ background:"white", borderRadius:24, padding:"40px 20px", border:"1px solid var(--border)", textAlign:"center" }}>
                 <div style={{ fontSize:36, marginBottom:12 }}>💭</div>
-                <div style={{ fontSize:14, color:"#C4A99A" }}>點擊上方按鈕，幫你解讀情緒模式</div>
+                <div style={{ fontSize:14, color:"var(--muted)" }}>點擊上方按鈕，幫你解讀情緒模式</div>
               </div>
             )}
           </div>
@@ -522,15 +668,15 @@ export default function MoodTracker() {
       </div>
 
       {/* Bottom Nav */}
-      <div style={{ position:"fixed", bottom:0, left:0, right:0, background:"white", borderTop:"1px solid #FFE8DC",
-        padding:"10px 20px 20px", boxShadow:"0 -4px 20px rgba(255,107,107,0.08)", zIndex:10 }}>
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, background:"white", borderTop:"1px solid var(--border)",
+        padding:"10px 20px 20px", boxShadow:"0 -4px 20px rgba(var(--rgb),0.08)", zIndex:10 }}>
         <div style={{ maxWidth:540, margin:"0 auto", display:"flex", gap:8 }}>
           {TABS.map(tab => (
             <button key={tab.id} onClick={()=>setView(tab.id)} style={{
               flex:1, padding:"10px 8px", borderRadius:14, border:"none", cursor:"pointer", transition:"all 0.2s",
-              background:view===tab.id?"linear-gradient(135deg,#FF6B6B,#FF8E72)":"transparent",
-              color:view===tab.id?"white":"#C4A99A", fontWeight:view===tab.id?800:500, fontSize:13,
-              boxShadow:view===tab.id?"0 4px 12px rgba(255,107,107,0.3)":"none",
+              background:view===tab.id?"linear-gradient(135deg,var(--accent),var(--accent2))":"transparent",
+              color:view===tab.id?"white":"var(--muted)", fontWeight:view===tab.id?800:500, fontSize:13,
+              boxShadow:view===tab.id?"0 4px 12px rgba(var(--rgb),0.3)":"none",
             }}>
               <div style={{ fontSize:18, marginBottom:2 }}>{tab.icon}</div>
               {tab.label}
@@ -542,10 +688,10 @@ export default function MoodTracker() {
       <style>{`
         input[type=range]::-webkit-slider-thumb {
           appearance:none; width:24px; height:24px; border-radius:50%;
-          background:white; box-shadow:0 2px 8px rgba(255,107,107,0.3); cursor:pointer;
-          border:2px solid #FF6B6B;
+          background:white; box-shadow:0 2px 8px rgba(var(--rgb),0.3); cursor:pointer;
+          border:2px solid var(--accent);
         }
-        textarea::placeholder { color:#DDD0CC; }
+        textarea::placeholder { color:var(--faint); }
         * { box-sizing:border-box; }
         button { font-family:inherit; }
       `}</style>
