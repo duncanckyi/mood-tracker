@@ -69,6 +69,16 @@ const OPEN_HINTS = [
 ];
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+// 試用回饋問卷連結（Google 表單、Tally 等）。留空的話，就不會顯示「意見回饋」按鈕。
+const FEEDBACK_URL = "";
+
+const ONBOARD = [
+  { emoji:"🌸", title:"歡迎來到心情日記", body:"每天花 30 秒記下分數和情緒標籤，之後就能看見自己的情緒變化。想補記前幾天、看月曆或趨勢圖，都可以。" },
+  { emoji:"🔒", title:"你的資料只在你的手機", body:"記錄存在這支手機的瀏覽器裡，沒有上傳，開發者也看不到。換手機或清除瀏覽器資料就會消失，建議定期到「趨勢」頁最下方備份。" },
+  { emoji:"📲", title:"加到主畫面更方便", body:"iPhone：用 Safari 開啟，點下方分享按鈕，選「加入主畫面」。\nAndroid：用 Chrome 開啟，點右上角選單，選「安裝應用程式」或「加到主畫面」。" },
+  { emoji:"💛", title:"小提醒", body:"這是記錄與整理心情的小工具，不是醫療或診斷工具。如果你覺得難以負荷，請找信任的人或專業人士聊聊。台灣可撥安心專線 1925（24 小時）。" },
+];
+
 const TABS = [
   { id: "log",     label: "記錄",  icon: "✏️" },
   { id: "calendar", label: "月曆", icon: "🗓️" },
@@ -93,6 +103,19 @@ export default function MoodTracker() {
 
   const [themeId, setThemeId] = useState(() => { try { return localStorage.getItem("mood_theme") || "coral"; } catch { return "coral"; } });
   const [showTheme, setShowTheme] = useState(false);
+  const [onboardStep, setOnboardStep] = useState(() => { try { return localStorage.getItem("mood_onboarded") ? -1 : 0; } catch { return -1; } });
+  const [showAbout, setShowAbout] = useState(false);
+  const [aboutMsg, setAboutMsg] = useState("");
+  const finishOnboard = () => { try { localStorage.setItem("mood_onboarded", "1"); } catch {} setOnboardStep(-1); };
+  const shareApp = async () => {
+    const url = window.location.origin;
+    const text = "我在用這個免費的心情日記 app：每天記錄心情分數和情緒，資料只存在自己的手機。一起來試試看 👉";
+    try { if (navigator.share) { await navigator.share({ title:"心情日記", text, url }); return; } }
+    catch (e) { if (e && e.name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(`${text} ${url}`); setAboutMsg("✓ 已複製分享連結"); }
+    catch { setAboutMsg("複製失敗，請手動複製網址"); }
+    setTimeout(() => setAboutMsg(""), 3000);
+  };
   const T = THEMES.find(t => t.id === themeId) || THEMES[0];
   const themeVars = { "--accent":T.accent, "--accent2":T.accent2, "--bg":T.bg, "--border":T.border, "--muted":T.muted, "--border2":T.border2, "--soft":T.soft, "--input":T.input, "--grid":T.grid, "--loading":T.loading, "--errb":T.errb, "--faint":T.faint, "--rgb":T.rgb };
   useEffect(() => {
@@ -364,6 +387,7 @@ export default function MoodTracker() {
               今日 {todayEntry.score}/10
             </div>
           )}
+          <button onClick={()=>setShowAbout(true)} aria-label="關於與說明" style={{ width:38, height:38, borderRadius:12, border:"1.5px solid var(--border2)", background:"var(--soft)", fontSize:16, fontWeight:800, color:"var(--accent)", cursor:"pointer", fontFamily:"inherit" }}>ⓘ</button>
           <button onClick={()=>setShowTheme(v=>!v)} aria-label="介面顏色" style={{ width:38, height:38, borderRadius:12, border:"1.5px solid var(--border2)", background:"var(--soft)", fontSize:18, cursor:"pointer" }}>🎨</button>
           </div>
         </div>
@@ -462,6 +486,12 @@ export default function MoodTracker() {
             }}>
               {saved ? "✓ 已儲存！" : selEntry ? (selDate===today() ? "更新今日記錄" : `更新 ${fmt(selDate)} 的記錄`) : (selDate===today() ? "儲存今日心情" : `儲存 ${fmt(selDate)} 的心情`)}
             </button>
+            <div style={{ display:"flex", justifyContent:"center", gap:18, fontSize:13, flexWrap:"wrap" }}>
+              {FEEDBACK_URL && <a href={FEEDBACK_URL} target="_blank" rel="noopener noreferrer" style={{ color:"var(--accent)", fontWeight:700, textDecoration:"none" }}>💬 意見回饋</a>}
+              <button onClick={shareApp} style={{ background:"none", border:"none", color:"var(--accent)", fontWeight:700, fontSize:13, cursor:"pointer", padding:0, fontFamily:"inherit" }}>📤 分享給朋友</button>
+              <button onClick={()=>setShowAbout(true)} style={{ background:"none", border:"none", color:"var(--muted)", fontWeight:600, fontSize:13, cursor:"pointer", padding:0, fontFamily:"inherit" }}>🔒 隱私說明</button>
+            </div>
+            {aboutMsg && !showAbout && <div style={{ textAlign:"center", fontSize:13, color:"var(--accent)", fontWeight:600 }}>{aboutMsg}</div>}
           </div>
         )}
 
@@ -750,6 +780,66 @@ export default function MoodTracker() {
           </div>
         )}
       </div>
+
+      {/* Onboarding */}
+      {onboardStep >= 0 && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", zIndex:50, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div style={{ background:"white", borderRadius:28, padding:"28px 24px 22px", width:"100%", maxWidth:380, boxShadow:"0 20px 60px rgba(0,0,0,0.25)" }}>
+            <div style={{ fontSize:48, textAlign:"center", marginBottom:10 }}>{ONBOARD[onboardStep].emoji}</div>
+            <div style={{ fontSize:19, fontWeight:800, textAlign:"center", color:"var(--accent)", marginBottom:12 }}>{ONBOARD[onboardStep].title}</div>
+            <div style={{ fontSize:14, color:"#4A3A3A", lineHeight:1.8, whiteSpace:"pre-line", minHeight:110 }}>{ONBOARD[onboardStep].body}</div>
+            <div style={{ display:"flex", justifyContent:"center", gap:6, margin:"16px 0" }}>
+              {ONBOARD.map((_, i) => <span key={i} style={{ width:i===onboardStep?18:6, height:6, borderRadius:99, background:i===onboardStep?"var(--accent)":"var(--border2)", transition:"all 0.2s" }} />)}
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={finishOnboard} style={{ flex:1, padding:"13px", borderRadius:14, border:"1.5px solid var(--border)", background:"white", color:"var(--muted)", fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>略過</button>
+              <button onClick={()=> onboardStep < ONBOARD.length-1 ? setOnboardStep(onboardStep+1) : finishOnboard()} style={{ flex:2, padding:"13px", borderRadius:14, border:"none", background:"linear-gradient(135deg,var(--accent),var(--accent2))", color:"white", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>
+                {onboardStep < ONBOARD.length-1 ? "下一步" : "開始使用"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* About / Privacy */}
+      {showAbout && (
+        <div onClick={()=>setShowAbout(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", zIndex:40, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"white", borderRadius:"28px 28px 0 0", width:"100%", maxWidth:540, maxHeight:"88vh", overflowY:"auto", padding:"22px 22px 36px" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+              <div style={{ fontSize:18, fontWeight:800, color:"var(--accent)" }}>關於心情日記 {T.emoji}</div>
+              <button onClick={()=>setShowAbout(false)} aria-label="關閉" style={{ width:34, height:34, borderRadius:10, border:"none", background:"var(--soft)", color:"var(--accent)", fontSize:16, fontWeight:800, cursor:"pointer" }}>✕</button>
+            </div>
+
+            <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:6 }}>
+              <button onClick={shareApp} style={{ padding:"13px", borderRadius:14, border:"none", background:"linear-gradient(135deg,var(--accent),var(--accent2))", color:"white", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>📤 分享給朋友</button>
+              {FEEDBACK_URL && <a href={FEEDBACK_URL} target="_blank" rel="noopener noreferrer" style={{ display:"block", textAlign:"center", padding:"13px", borderRadius:14, border:"1.5px solid var(--border2)", background:"var(--bg)", color:"var(--accent)", fontWeight:800, fontSize:14, textDecoration:"none" }}>💬 意見回饋</a>}
+              <button onClick={()=>{ setShowAbout(false); setOnboardStep(0); }} style={{ padding:"13px", borderRadius:14, border:"1.5px solid var(--border)", background:"white", color:"var(--muted)", fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>📖 重看使用導覽</button>
+            </div>
+            {aboutMsg && <div style={{ textAlign:"center", fontSize:13, color:"var(--accent)", fontWeight:600, marginTop:8 }}>{aboutMsg}</div>}
+
+            <div style={{ fontSize:15, fontWeight:800, color:"#2D2D2D", margin:"22px 0 10px" }}>🔒 隱私說明</div>
+            <div style={{ fontSize:13, color:"#4A3A3A", lineHeight:1.85 }}>
+              <p style={{ margin:"0 0 8px" }}>• 不需要註冊或登入，沒有帳號。</p>
+              <p style={{ margin:"0 0 8px" }}>• 你的心情記錄只存在這支手機的瀏覽器裡，沒有上傳到任何伺服器，開發者也看不到。</p>
+              <p style={{ margin:"0 0 8px" }}>• 清除瀏覽器資料、換手機，或刪除主畫面圖示後重新加入，記錄可能會消失。請定期到「趨勢」頁最下方備份。</p>
+              <p style={{ margin:"0 0 8px" }}>• 匯出的備份檔是明文，請存放在你信任的地方。</p>
+              <p style={{ margin:"0 0 8px" }}>• 「分析」頁的趨勢與模式分析，都是在你的手機上計算的。</p>
+              <p style={{ margin:"0 0 8px" }}>• 如果你使用「請 Claude 陪你聊聊」，按下複製後，由你自己貼到 Claude 的內容（含記錄與備註）會傳送給 Anthropic，並適用其隱私政策。貼上之前，可以先刪掉不想分享的內容。</p>
+              <p style={{ margin:"0 0 8px" }}>• 這個網站由 Vercel 代管，一般網站伺服器可能記錄基本連線資訊，但不包含你的心情記錄。</p>
+            </div>
+
+            <div style={{ fontSize:15, fontWeight:800, color:"#2D2D2D", margin:"22px 0 10px" }}>💛 使用須知</div>
+            <div style={{ fontSize:13, color:"#4A3A3A", lineHeight:1.85 }}>
+              <p style={{ margin:"0 0 8px" }}>這是記錄與整理心情的小工具，不是醫療、診斷或治療工具，分析結果也不能取代專業意見。</p>
+              <p style={{ margin:"0 0 8px" }}>如果你覺得難以負荷，請找信任的人聊聊，或聯絡專業協助（台灣）：</p>
+              <p style={{ margin:"0 0 4px" }}>・安心專線 1925（24 小時）</p>
+              <p style={{ margin:"0 0 4px" }}>・生命線 1995</p>
+              <p style={{ margin:"0 0 8px" }}>・張老師 1980</p>
+              <p style={{ margin:0 }}>若有立即的危險，請撥 119 或 110。</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Nav */}
       <div style={{ position:"fixed", bottom:0, left:0, right:0, background:"white", borderTop:"1px solid var(--border)",
